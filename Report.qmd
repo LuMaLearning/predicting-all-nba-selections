@@ -55,10 +55,10 @@ set.seed(1)
 
 # Last complete season
 season = 2024
-player_df = read_csv("player_23-24.csv")
-all_nba = read_csv("all-pro_23-24.csv")
+player_df = read_csv("/data/player_23-24.csv")
+all_nba = read_csv("/data/all-pro_23-24.csv")
 
-# View the advanced statsa
+# View the advanced stats
 advanced_stats = bref_players_stats(seasons = season, tables = "advanced") |>
   select(namePlayer, ratioWS, ratioOWS, ratioDWS, ratioWSPer48, ratioOBPM, ratioDBPM, ratioBPM, ratioVORP) |>
   arrange(desc(ratioWS))
@@ -93,8 +93,8 @@ player_df_scaled = player_df |>
 #| include: FALSE
 # Last complete season
 season = 2025
-player_df_24 = read_csv("player_24-25.csv")
-all_nba_24 = read_csv("all-pro_24-25.csv")
+player_df_24 = read_csv("/data/player_24-25.csv")
+all_nba_24 = read_csv("/data/all-pro_24-25.csv")
 
 # View the advanced stats
 advanced_stats = bref_players_stats(seasons = season, tables = "advanced") |>
@@ -1092,7 +1092,6 @@ player_df_scaled_24 = player_df_24 |>
   mutate(across(c(ratioWS, G, MP, FG, FGA, FT, FTA, TRB, AST, STL, BLK, TOV, PF, PTS, win_pct), scale))
 ```
 
-
 ```{r}
 #| label: team-record-model
 
@@ -1114,5 +1113,3 @@ pred_24_team = cbind(
   , pred_24_team) |>
   mutate(pred_is_all_nba =  as.numeric(rank(-Estimate, ties.method = "first") <= 15))
 ```
-
-
