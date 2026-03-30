@@ -1,0 +1,55 @@
+---
+title: "Case Study 2 Project Proposal"
+author: "Luxman Maheswaran"
+format: pdf
+editor: visual
+---
+
+#### Load Packages
+
+```{r load-packages, message = FALSE, warning = FALSE}
+library(tidyverse)
+```
+
+**Project choice \# (1-5 based on Canvas descriptions): #4 Sports Reference**
+
+**Dataset(s) within selected source, if applicable: Basketball**
+
+**External data, if applicable:**
+
+**Brief description: Player Stats by Season & All Pro Selections**
+
+The primary dataset would be a season-long aggregation of a player's box score. Advanced metrics like [win-shares](https://www.basketball-reference.com/about/ws.html) can be calculated from these statistics. In addition, there is a separate data set that contains All Pro selections for a season.
+
+The other research question would use season-long team statistics (same as player statistics aggregated on a team level).
+
+**Research question 1: Can box scores and advanced metrics successfully predict All Pro selections using a generalized linear mixed effects model?**
+
+-   Outcome variable (include the name/description and type of variable): All Pro Selection (Binary - Yes/No)
+
+**Research question 2 (optional): Can team statistics predict playoff teams, and if so how far in advance?**
+
+-   Outcome variable (include the name/description and type of variable): Playoff Entrance (Binary - Yes/No)
+
+**Load the data and provide a `glimpse()`**:
+
+```{r data-1, warning=FALSE, message=FALSE}
+
+library(tidyverse)
+library(stringr)
+
+player = read_csv("player_24-25.csv") |>
+  mutate(Player = str_squish(Player))
+
+all_pro = read_csv("all-pro_24-25.csv") |>
+  pivot_longer(
+    cols = everything(),
+    names_to = "All-Pro",
+    values_to = "Player") |>
+  mutate(Player = str_squish(Player))
+
+player = player |>
+  left_join(all_pro, by = join_by(Player == Player))
+
+glimpse(player)
+```

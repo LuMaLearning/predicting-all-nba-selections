@@ -1,0 +1,795 @@
+---
+title: "Case Study 2 Report"
+format:
+  pdf:
+    documentclass: scrartcl
+    fontsize: 11pt
+    geometry:
+      - top=1in
+      - bottom=1in
+      - left=1.25in
+      - right=1.25in
+    number-sections: false
+    colorlinks: true
+editor: visual
+execute:
+  cache: true
+  echo: false
+  message: false
+  warning: false
+---
+
+```{r}
+#| label: setup
+#| include: FALSE
+#| warning: FALSE
+#| message: FALSE
+
+library(nbastatR)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(stringr)
+library(stringi)
+library(ggcorrplot)
+library(glmnet)
+library(lme4)
+library(brms)
+library(caret)
+library(knitr)
+library(kableExtra)
+
+knitr::opts_chunk$set(echo = FALSE)
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 4)
+
+set.seed(1)
+
+# Last complete season
+season = 2024
+player_df = read_csv("player_23-24.csv")
+all_nba = read_csv("all-pro_23-24.csv")
+
+# View the advanced statsa
+advanced_stats = bref_players_stats(seasons = season, tables = "advanced") |>
+  select(namePlayer, ratioWS, ratioOWS, ratioDWS, ratioWSPer48, ratioOBPM, ratioDBPM, ratioBPM, ratioVORP) |>
+  arrange(desc(ratioWS))
+
+# Clear large df out of memory
+dataBREFPlayerAdvanced = NULL
+
+all_nba = all_nba |>
+  pivot_longer(
+    cols = c(`1st Team`, `2nd Team`, `3rd Team`),
+    names_to = "all_nba",
+    values_to = "name"
+  ) |>
+  mutate(name = str_trim(name))
+
+player_df = player_df |>
+  left_join(all_nba, by = join_by(Player==name)) |>
+  mutate(Player = stri_trans_general(Player, "latin-ascii"),
+         is_all_nba = as.numeric(!is.na(all_nba))) |>
+  # All-NBA qualification criteria
+  filter(G>=65,
+         MP>=65*20-10) |>
+  left_join(advanced_stats, by = join_by(Player==namePlayer))
+
+# normalize all var.
+player_df_scaled = player_df |>
+  mutate(across(c(ratioWS, G, MP, FG, FGA, FT, FTA, TRB, AST, STL, BLK, TOV, PF, PTS), scale))
+
+```
+
+```{r}
+#| include: FALSE
+# Last complete season
+season = 2025
+player_df_24 = read_csv("player_24-25.csv")
+all_nba_24 = read_csv("all-pro_24-25.csv")
+
+# View the advanced stats
+advanced_stats = bref_players_stats(seasons = season, tables = "advanced") |>
+  select(namePlayer, ratioWS, ratioOWS, ratioDWS, ratioWSPer48, ratioOBPM, ratioDBPM, ratioBPM, ratioVORP) |>
+  arrange(desc(ratioWS))
+
+# Clear large df out of memory
+dataBREFPlayerAdvanced = NULL
+
+all_nba_24 = all_nba_24 |>
+  pivot_longer(
+    cols = c(`1st Team`, `2nd Team`, `3rd Team`),
+    names_to = "all_nba",
+    values_to = "name"
+  ) |>
+  mutate(name = str_trim(name))
+
+player_df_24 = player_df_24 |>
+  left_join(all_nba_24, by = join_by(Player==name)) |>
+  mutate(Player = stri_trans_general(Player, "latin-ascii"),
+         is_all_nba = as.numeric(!is.na(all_nba))) |>
+  # All-NBA qualification criteria
+  filter(G>=65,
+         MP>=65*20-10) |>
+  left_join(advanced_stats, by = join_by(Player==namePlayer))
+
+# normalize all var.
+player_df_scaled_24 = player_df_24 |>
+  mutate(across(c(ratioWS, G, MP, FG, FGA, FT, FTA, TRB, AST, STL, BLK, TOV, PF, PTS), scale))
+
+```
+
+```{r}
+#| include: FALSE
+# Link to gemini convo: https://gemini.google.com/share/589bd25e5adc
+
+# Par Ratio: 
+# Expect 7 out of the 14 predictors to be relevant
+hs_prior = prior(horseshoe(df = 1, par_ratio = 1/2), class = "b")  # shrinkage on all slopes
+
+fit_hs = brm(
+  is_all_nba ~ ratioWS + G + MP + FG + FGA + FT + FTA +
+    TRB + AST + STL + BLK + TOV + PF + PTS,
+  data = player_df_scaled,
+  family = bernoulli(link = "logit"),
+  prior = hs_prior,
+  chains = 4, cores = 4, iter = 2000,
+  control = list(adapt_delta = 0.95)
+)
+
+summary(fit_hs)
+```
+
+
+```{r}
+#| include: FALSE
+pred_24 = fitted(fit_hs, newdata = player_df_scaled_24)
+pred_24 = cbind(
+  player_df_scaled_24 |> select(Rk, Player, ratioWS, all_nba, is_all_nba)
+  , pred_24) |>
+  mutate(pred_is_all_nba =  as.numeric(rank(-Estimate, ties.method = "first") <= 15))
+
+confusionMatrix(
+  factor(pred_24$pred_is_all_nba),
+  factor(pred_24$is_all_nba),
+  positive = "1"
+)
+```
+
+
+
+## All-NBA Selection Prediction Using Advanced Metrics
+
+------------------------------------------------------------------------
+
+
+
+
+### 1 Introduction
+
+#### Background/Introduction:
+
+The All-NBA Team is one of the National Basketball Association’s most prestigious individual honors. It is awarded to the players that have performed at the highest level during the regular season. The selections have been determined through voting by a panel of 100 sportswriters and broadcasters, with players ranked based on ballot points. The top five players are assigned to first (best), the next five best players to the second team, and 11th-15th ranked players to the third team. These awards not only count towards a player's legacy, but also their salary (contract incentives), reputation, and Hall of Fame consideration.
+
+Advances in computing and game-tracking have led to new basketball metrics and available data. Advanced metrics like win share attempt to quantify player contribution to a team's wins in one number to objectively measure player performance. Modelling all-NBA selections using objective metrics not only proves or disproves the value of some of these metrics, but can also highlight the impact subjective measures like voter fatigue, reluctance to repeatedly vote for the same dominant players, or popularity have on NBA awards.
+
+#### Study Aims
+
+The study will examine player box scores at the end of a season and calculate advanced statistics, namely win share, to identify if All-NBA status can be predicted from metrics using a generalized linear mixed effect model (GLMM). The primary aim of the study will be to determine the predictive value of win shares on all-NBA selection. Secondary aims will look at other advanced metrics like box-plus-minus in comparison with win share.
+
+### 2 Data
+
+The data for this study comes from Basketball Reference, a website that aggregates several basketball statistics. The key variables of interest are `is_all_nba`, a binary variable indicating whether a player was selected, and `ratioWS`, which is a rational number representing the win share of the player. [Win share](https://www.basketball-reference.com/about/ws.html) is a metric that attempts to divide up a team's wins to its player proportionally by contribution (Sports Reference).
+
+The dataset includes NBA players with 65 games played and average over 20 minutes in those games, based on selection criteria for the award. There is no missing data, due to meticulous stat-tracking.
+
+### 3 Exploratory Data Analysis
+
+In @fig-WS-All-NBA, there is a clear distinction in win shares across the 4 different selection groups. This indicates that win shares can be used as a useful predictor. There is, however, some overlap between the all-NBA groups and some of the unselected players, meaning that win shares alone cannot predict all-NBA status.
+
+```{r}
+#| label: fig-WS-All-NBA
+#| fig-width: 5
+#| fig-height: 3
+
+ggplot(player_df, aes(x = factor(all_nba), y = ratioWS, fill = factor(all_nba))) +
+  geom_boxplot(outlier.color = "red") +
+  scale_x_discrete(labels = c("0" = "Not Selected", "1" = "All-NBA")) +
+  labs(title = "Win Shares: All-NBA vs. Non-All-NBA Players",
+       subtitle = "WS is expected to be significantly higher for selected players",
+       x = "All-NBA Selection", y = "Total Win Shares") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+### 4 Model Fitting and Diagnostics
+
+#### Statistical Model
+
+The probability of selection is modeled using a logistic link:
+
+$$ 
+\begin{align}
+\text{logit}(p_i) =
+\beta_0 +
+\beta_1 \text{ratioWS}_i +
+\beta_2 G_i +
+\beta_3 MP_i +
+\beta_4 FG_i +
+\beta_5 FGA_i +
+\beta_6 FT_i +
+\beta_7 FTA_i + \\
+\beta_8 TRB_i +
+\beta_9 AST_i +
+\beta_{10} STL_i +
+\beta_{11} BLK_i +
+\beta_{12} TOV_i +
+\beta_{13} PF_i +
+\beta_{14} PTS_i
+\end{align}
+$$
+
+where all predictor variables are standardized. These predictors were chosen from the full list of variables to avoid choosing variables that are too similar to other variables. 
+
+To perform shrinkage and automatic variable selection, the regression coefficients are assigned a horseshoe prior:
+
+$$
+\beta_j \ | \ \tau^2, \lambda_j^2 \sim \mathcal{N}(0, \tau^2 \lambda_j^2), \quad j = 1, \ldots, 14
+$$
+
+$$
+\lambda_j \sim C^{+}(0,1)
+$$
+
+$$
+\tau \sim C^{+}(0,\tau_0)
+$$
+
+where $C^{+}(0,1)$ denotes the half-Cauchy distribution. The global parameter $\tau$ controls overall shrinkage, while the local parameters $\lambda_j$ allow individual coefficients to escape shrinkage when strongly supported by the data.Let $Y_i$ denote whether player $i$ was selected to an All-NBA team. $\tau_0$ indicates the shrinkage corresponding to the expected number of true predictors (7 out of 14 in this case) (Carvalho 2009).
+
+#### Model Selection and Diagnostics
+
+Because the initial frequentist model did not converge, I fit a Bayesian logistic regression with a horseshoe prior to shrink estimates to handle the multicollinear, small dataset. Due to the relatively small dataset available, methods that rely on hyperparameter tuning like LASSO or Ridge regression are unsuitable for variable selection. All predictors were standardized, so each coefficient corresponds to a one standard deviation increase in the predictor. Posterior sampling mixed well (all $\hat{R}\approx 1.00$ and effective sample sizes $>1000$), indicating convergence and stable posterior estimates.
+
+### 5 Discussion
+
+The posterior suggests that win share is the strongest predictor of All-NBA selection. Not only does it have the largest coefficient by magnitude, but it is also the only strongly positive coefficient, with an credible interval that does not contain 0 ($\beta=2.8$, 95% CrI: (0.75 to 6.19). This coefficient translates to: a standard deviation increase in win shares increases the probaility of being an all star by approximately 95%. This supports the primary aim that win shares contain meaningful a predictive signal for All-NBA outcomes. Other variables such as minutes played (MP), steals (STL), blocks (BLK), and personal fouls (PF) had posterior intervals overlapping zero in this fit, suggesting weaker predictive value. Other notable variables with moderately large coefficients (0.75-1) include field goals made (FG), points (PTS), and turnovers (TO). Interestingly, turnovers, which is a bad statistics, has a positive coefficient. The model interpretation implies that a high number of turnovers actually increases a player's all-NBA selection chances. One possible explanation could be that players who handle the ball more frequently have more turnovers. If a player has a significant amount of turnovers without being benched or sidelined, then they must be providing value in other ways.
+
+```{r}
+
+summary_table = as.data.frame(fixef(fit_hs)) |>
+  select(
+    Estimate, 
+    `Lower CI` = Q2.5, 
+    `Upper CI` = Q97.5
+  ) 
+
+# 2. Format with kable
+summary_table |>
+  kbl(caption = "Posterior Estimates for All-NBA Predictors",
+      digits = 2,
+      align = "lccc") |> # 'l' for names, 'ccc' for numeric
+  kable_classic(full_width = F, html_font = "Arial") |>
+  row_spec(0, bold = TRUE) |> # Bolds the header row
+  column_spec(1, bold = TRUE)    # Bolds the variable names
+```
+
+Looking at other advanced metrics, box-plus-minus (BPM) and value-over-replacement-player (VORP),
+they also show similar positive coefficients when each metric is substituted for win share. This indicates that these advanced metrics do have significant predictive power. The magnitude and relatively narrow credible intervals mean that there is value in examining advanced statistics. It also provides casual fans an objective idea of a player's performance without watching the game.    
+
+Since there are only two seasons since the all-NBA eligibility rules changed, the 2023-2024 season data was used to fit the model validated against the 2024-2025 season outcomes. The model succesfully identified 12 out of the 15 (~80%) all-NBA selections as shown in @tbl-validation below. 
+
+```{r}
+#| label: tbl-validation
+#| tbl-cap: "Validation results for 2024–2025 season predictions"
+#| 
+validation_24 = pred_24 |>
+  filter((is_all_nba ==1) | (pred_is_all_nba==1)) |>
+  select(Player, all_nba, pred_is_all_nba, Estimate, Est.Error) |>
+  arrange(-Estimate) |>
+  mutate(all_nba = replace_na(all_nba, "Not Selected")) |>
+  rename(
+    `All-NBA` = all_nba,
+    `Predicted Label` = pred_is_all_nba,
+    `Estimate Uncertainty` = Est.Error
+  )
+
+kable(validation_24, align = "llccc")
+```
+
+#### Limitations
+
+The validation and training sets are both quite small, containing only 15 positive values each. The small datasets means that the choice of prior is very important in determining the posterior. The model used weakly informative prior on scaled predictors, where the choice of expected predictors was arbitrary. This means that there is room for improved prior selection. 
+
+In addition, the model also ignores the time series structure of all-NBA voting. For instance, a player's previous season's performance might somehow affect voter's perception of the player's current season performance. Any correlation across time is ignored. 
+
+#### Conclusion
+
+This study shows that advanced metrics along with box score statistics can predict all-NBA selections with reasonably good sensitivity (80% out-of-sample). Win shares emerged as the most informative predictor among 14 total predictors analyzed. Other intangible factors like leadership, gameplanning, and teammate chemistry could also play a large role in determining all-NBA selection that won't necessarily be captured in the box score or advanced metrics derived from the box score. Future work could incorporate team record, popularity (social media mentions/views), and position/role indicators, and could evaluate performance across several years with enough data. 
+
+### 6 References
+
+1. Sports Reference LLC "2024-25 NBA Player Stats: Totals" Basketball-Reference.com - Basketball Statistics and History. <https://www.basketball-reference.com/>. Data pulled on: Feb. 03, 2026.
+
+2.  Popovic, G. (2022). *Generalised mixed models*. Environmental Computing. <https://environmentalcomputing.net/statistics/mixed-models/mixed-model-3/>
+
+3.  Bresler A (2026). \_nbastatR: R's interface to NBA data\_. R package version 0.1.153, commit f1e25e746f8a9dffdd7cc4eb3666efb37fc6a8b9, \<https://github.com/abresler/nbastatR\>.
+
+4.  Carvalho, C.M., Polson, N.G. & Scott, J.G.. (2009). Handling Sparsity via the Horseshoe. <i>Proceedings of the Twelfth International Conference on Artificial Intelligence and Statistics</i>, in <i>Proceedings of Machine Learning Research</i> 5:73-80 Available from https://proceedings.mlr.press/v5/carvalho09a.html.
+
+5. Piironen, J., & Vehtari, A. (2017, April). On the hyperprior choice for the global shrinkage parameter in the horseshoe prior. In Artificial intelligence and statistics (pp. 905-913). PMLR.
+
+6. Google. (2026). Gemini (3 Thinking/Flash version) [Large language model]. https://gemini.google.com/
+
+7. OpenAI. (2026). ChatGPT (5.4 Thinking version) [Large language model]. https://chat.openai.com/chat
+
+
+\newpage
+
+## AI Disclosure
+
+AI was used to create/edit/debug code, edit text, generate LaTex code, generate modelling ideas, and compare and contrast different ideas.
+
+### AI model
+
+- Gemini 3 Thinking version developed by Google
+
+- ChatGPT 5.4 Thinking version developed by OpenAI
+
+### AI Transcripts
+
+Bayesian Horseshoe prior limitations and design:
+
+Bayesian 'probability of direction' and variable selection with multicollinearity:
+https://gemini.google.com/share/aaa5ba31f51f
+
+BRMS R Code:
+https://gemini.google.com/share/ee530cd2d6aa
+
+GLMM R Code:
+https://gemini.google.com/share/7852a5551064
+
+Quarto Markdown syntax:
+https://chatgpt.com/share/69ae225b-58b4-8004-ad43-6dd99a9fd34c
+
+## Appendix
+
+# Exploratory Data Analysis (cont.)
+
+ 
+```{r}
+#| label: tbl-summary-stats
+#| tbl-cap: "Summary statistics for all numeric variables"
+
+
+# Summary stats
+summary_tbl = player_df |>
+  select(-is_all_nba, Rk) |>
+  summarise(
+    across(
+      where(is.numeric),
+      list(
+        Mean   = ~mean(.x, na.rm = TRUE),
+        `Standard Deviation`     = ~sd(.x, na.rm = TRUE),
+        Median = ~median(.x, na.rm = TRUE),
+        `90th Percentile`    = ~quantile(.x, 0.90, na.rm = TRUE)
+      )
+    )
+  ) |>
+  pivot_longer(
+    everything(),
+    names_to = c("variable", ".value"),
+    names_sep = "_"
+  )
+
+# Output formatted table
+kable(summary_tbl) |>
+  kable_styling(
+    font_size = 9,
+    bootstrap_options = c("condensed")
+  )
+```
+
+### Win Share Compared to All-NBA Selection Status
+
+Looking at the graph below, there is a clear distinction in win shares across the 4 different selection groups. This indicates that win shares can be used as a useful predictor. There is, however, some overlap between the all-NBA groups and some of the unselected players, meaning that win shares alone cannot predict all-NBA status.
+
+```{r}
+#| label: WS-All-NBA-repeat
+#| fig-width: 5
+#| fig-height: 3
+
+ggplot(player_df, aes(x = factor(all_nba), y = ratioWS, fill = factor(all_nba))) +
+  geom_boxplot(outlier.color = "red") +
+  scale_x_discrete(labels = c("0" = "Not Selected", "1" = "All-NBA")) +
+  labs(title = "Win Shares: All-NBA vs. Non-All-NBA Players",
+       subtitle = "WS is expected to be significantly higher for selected players",
+       x = "All-NBA Selection", y = "Total Win Shares") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+### Usage and All-NBA
+
+A common expression in the NBA is "availability is the best ability". The graph below shows that all-NBA players have higher minutes played compared to other players, indicating higher usage. The best players typically play the most minutes in a game, but there is not enough separation in the distribution to use minutes alone.
+
+```{r}
+#| label: min-all-nba
+#| fig-width: 5
+#| fig-height: 3
+
+ggplot(player_df,
+       aes(MP, fill = factor(is_all_nba))) +
+  geom_density(alpha = .4) +
+  scale_fill_manual(
+    name = "Selection Status",
+    labels = c(
+      "0" = "Not Selected",
+      "1" = "All-NBA"
+    ),
+    values = c(
+      "0" = "grey70",
+      "1" = "darkblue"
+    )
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+### Correlation Plot With Selected Predictors
+
+The correlation plot below shows that there is a moderate correlation between some of the key predictors. The largest of which is free throw attempts and points, which make sense as they go hand in hand. There also also moderate correlations between minutes played and points, turnovers and assists, free throwws and turnovers.
+
+```{r}
+#| label: corrplot
+#| fig-width: 5
+#| fig-height: 3
+
+corr_data = player_df |>
+  select(ratioWS, PTS, TRB, AST, BLK, STL, TOV, PF, FT, MP, `FG%`, `3P%`) |>
+  drop_na()
+
+# Calculate and plot correlation
+corr_matrix = cor(corr_data)
+ggcorrplot(corr_matrix, lab = FALSE, colors = c("red", "white", "blue"),
+           title = "Correlation Heatmap of Predictive Metrics")
+```
+
+### Logistic GLMM (Initial Model)
+
+#### Assumptions
+
+The model assumptions are as follows (Popovic):
+
+1.  Observations are independent conditional on predictors and random effects.
+
+2.  The response variable follows a distribution from the exponential family (e.g., binomial, Poisson, Gaussian).
+
+3.  A link function (logit) defines a linear relationship between predictors and the mean response.
+
+4.  Random effects are independent of the response.
+
+5.  Random effects are typically normally distributed.
+
+#### Model Assessment
+
+To test the assumptions, the random effects should be approximately normally distributed. This can be checked with a Q-Q plot. The residuals should also not be correlated with the fixed effects, which can be checked with a scatter plot of the partial residuals. The Intraclass Correlation Coefficient (ICC) will provide a measure of what percentage of the variation is explained by the team rather than the individual stats.
+
+The performance of the model can be evaluated using a AUC-PR metric, which measures the area under the the precision recall curve of the model. This metric works better for unbalanced data sets like this one with 10% of the data coming in the minority class. Other metrics that could also be useful are ROC AUC, f1 score, and accuracy. 
+
+Unfortunately, the initially proposed model did not converge. This means that the coefficients and the p-values cannot be interpreted.
+
+```{r}
+# normalize all var.
+player_df_scaled = player_df |>
+  mutate(across(c(ratioWS, G, MP, FG, FGA, FT, FTA, TRB, AST, STL, BLK, TOV, PF, PTS), scale))
+
+# Fit the GLM
+glm_model = glm(is_all_nba ~ ratioWS + G + MP + FG + FGA + `3P` + FT + FTA + TRB + AST + STL + BLK + TOV + PF + PTS, 
+                    data = player_df_scaled, 
+                    family = binomial(link = "logit")) 
+
+# View the summary
+summary(glm_model)
+```
+
+### Logistic Regression with LASSO
+
+Removing the random effect should help the algorithm converge, as it removes additional variables that don't have to be estimated. LASSO should help with variable selection as there is definitely multicollinearity in the equation as specified.
+
+The coefficients provide a sense of magnitude and which variables are more useful in predicting the overall response variable. Variable selection methods are fragile with small, noisy datasets.
+
+```{r}
+x = model.matrix(
+  is_all_nba ~ ratioWS + G + MP + FG + FGA + `3P` + FT + FTA + TRB + AST + STL + BLK + TOV + PF + PTS,
+  data = player_df_scaled
+)[, -1]
+y = player_df_scaled$is_all_nba
+
+cv = cv.glmnet(x, y, family = "binomial", alpha = 1)  # alpha=0 ridge, alpha=1 lasso
+fit = glmnet(x, y, family = "binomial", lambda = cv$lambda.min, alpha = 1)
+
+coef(fit)
+```
+
+### Bayesian Logistic Regression with Horseshoe Prior
+
+The probability of selection is modeled using a logistic link:
+
+$$
+\text{logit}(p_i) =
+\beta_0 +
+\beta_1 \text{ratioWS}_i +
+\beta_2 G_i +
+\beta_3 MP_i +
+\beta_4 FG_i +
+\beta_5 FGA_i +
+\beta_6 FT_i +
+\beta_7 FTA_i +
+\beta_8 TRB_i +
+\beta_9 AST_i +
+\beta_{10} STL_i +
+\beta_{11} BLK_i +
+\beta_{12} TOV_i +
+\beta_{13} PF_i +
+\beta_{14} PTS_i
+$$
+
+where all predictor variables are standardized.
+
+To perform shrinkage and automatic variable selection, the regression coefficients are assigned a horseshoe prior:
+
+$$
+\beta_j \ | \ \tau^2, \lambda_j^2 \sim \mathcal{N}(0, \tau^2 \lambda_j^2), \quad j = 1, \ldots, 14
+$$
+
+$$
+\lambda_j \sim C^{+}(0,1)
+$$
+
+$$
+\tau \sim C^{+}(0,\tau_0)
+$$
+
+where $C^{+}(0,1)$ denotes the half-Cauchy distribution. The global parameter $\tau$ controls overall shrinkage, while the local parameters $\lambda_j$ allow individual coefficients to escape shrinkage when strongly supported by the data.Let $Y_i$ denote whether player $i$ was selected to an All-NBA team. $\tau_0$ indicates the shrinkage corresponding to the expected number of true predictors (7 out of 14 in this case) (Carvalho 2009).
+
+```{r}
+# Link to gemini convo: https://gemini.google.com/share/589bd25e5adc
+
+# Par Ratio: 
+# Expect 1/(1+2) to be relevant
+hs_prior = prior(horseshoe(df = 1, par_ratio = 1/2), class = "b")  # shrinkage on all slopes
+
+fit_hs = brm(
+  is_all_nba ~ ratioWS + G + MP + FG + FGA + FT + FTA +
+    TRB + AST + STL + BLK + TOV + PF + PTS,
+  data = player_df_scaled,
+  family = bernoulli(link = "logit"),
+  prior = hs_prior,
+  chains = 4, cores = 4, iter = 2000,
+  control = list(adapt_delta = 0.95)
+)
+
+summary(fit_hs)
+
+```
+
+```{r}
+library(bayestestR)
+
+# Link to gemini convo: https://gemini.google.com/share/408c1737e34e
+
+# Calculate the probability that the effect is non-zero
+pd_results = p_direction(fit_hs)
+print(pd_results)
+```
+
+#### Assumptions and Assessment
+
+The model diagnostics look quite good as the Rhat for each parameter is 1 or extremely close to 1, indicating convergence. Both the bulk and tail effective sample size is greater than 1000, which means that the Markov Chain Monte Carlo sequences explored the sample space well.
+
+The model also manages to correctly identify all 15 all-NBA players. The ranks for each player also closely match the 1st team, 2nd team, and 3rd team designations. This means that the model overall performs well.
+
+#### Interpretation
+
+Posterior estimates indicate that points scored and Win Share ratio are the strongest predictors of All-NBA selection. A one standard deviation increase in points corresponds to a large increase in the log-odds of selection ($\beta$ = 4.15, 95% Cred. Int.: 1.82–7.97), while Win Share ratio also exhibits a substantial positive effect ($\beta$ = 2.86, 95% Cred. Int: 0.85–5.94). In contrast, several defensive and playing time variables show posterior intervals overlapping zero, suggesting weaker or uncertain contributions once scoring and overall value metrics are included.
+
+
+```{r}
+fit_refined = brm(
+  is_all_nba ~ ratioWS + G + PTS + MP + BLK + STL + PF,
+  data = player_df_scaled,
+  family = bernoulli(link = "logit"),
+  prior = hs_prior,
+  chains = 4, iter = 2000
+)
+
+# Check pd again
+p_direction(fit_refined)
+
+# View summary
+summary(fit_refined)
+```
+
+```{r}
+# Generate predicted probabilities for every player in your data
+preds = posterior_epred(fit_refined)
+
+# Calculate the average probability for each player
+player_df$prob_all_nba = colMeans(preds)
+
+# Create the ranking
+player_ranks = player_df |>
+  arrange(desc(prob_all_nba)) |>
+  mutate(predicted_rank = row_number()) |>
+  select(predicted_rank, prob_all_nba, everything())
+
+# View the top 15 predicted All-NBA players
+head(player_ranks, 15)
+```
+
+
+
+```{r}
+#| label: fig-hs-coefs
+#| fig-cap: "Posterior medians and 95% credible intervals for the refined horseshoe logistic regression."
+#| fig-width: 6
+#| fig-height: 3.5
+
+library(tidybayes)
+
+coef_df = fit_refined |>
+  tidybayes::spread_draws(b_Intercept, b_ratioWS, b_G, b_PTS, b_MP, b_BLK, b_STL, b_PF) |>
+  pivot_longer(cols = starts_with("b_"), names_to = "term", values_to = "value") |>
+  mutate(term = recode(term,
+                       "b_Intercept" = "Intercept",
+                       "b_ratioWS" = "ratioWS",
+                       "b_G" = "G",
+                       "b_PTS" = "PTS",
+                       "b_MP" = "MP",
+                       "b_BLK" = "BLK",
+                       "b_STL" = "STL",
+                       "b_PF" = "PF"))
+
+sum_df = coef_df |>
+  group_by(term) |>
+  summarize(
+    median = median(value),
+    lo = quantile(value, 0.025),
+    hi = quantile(value, 0.975),
+    .groups = "drop"
+  ) |>
+  mutate(term = factor(term, levels = rev(term)))
+
+ggplot(sum_df, aes(x = median, y = term)) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.15) +
+  labs(x = "Coefficient (log-odds; predictors standardized)", y = NULL) +
+  theme_minimal()
+```
+
+#### Model Training + Validation
+
+The 2024-2025 season was used to validate the model. The accuracy of the model is slightly inflated as there are a large portion of true negatives ~90% of eligible players. The sensitivity (80%) is a better indication of model performance as 80% of the true positives where correctly identified, which is the goal of the model. 
+
+```{r}
+# Last complete season
+season = 2025
+player_df_24 = read_csv("player_24-25.csv")
+all_nba_24 = read_csv("all-pro_24-25.csv")
+
+# View the advanced stats
+advanced_stats = bref_players_stats(seasons = season, tables = "advanced") |>
+  select(namePlayer, ratioWS, ratioOWS, ratioDWS, ratioWSPer48, ratioOBPM, ratioDBPM, ratioBPM, ratioVORP) |>
+  arrange(desc(ratioWS))
+
+# Clear large df out of memory
+dataBREFPlayerAdvanced = NULL
+
+all_nba_24 = all_nba_24 |>
+  pivot_longer(
+    cols = c(`1st Team`, `2nd Team`, `3rd Team`),
+    names_to = "all_nba",
+    values_to = "name"
+  ) |>
+  mutate(name = str_trim(name))
+
+player_df_24 = player_df_24 |>
+  left_join(all_nba_24, by = join_by(Player==name)) |>
+  mutate(Player = stri_trans_general(Player, "latin-ascii"),
+         is_all_nba = as.numeric(!is.na(all_nba))) |>
+  # All-NBA qualification criteria
+  filter(G>=65,
+         MP>=65*20-10) |>
+  left_join(advanced_stats, by = join_by(Player==namePlayer))
+
+```
+
+
+```{r}
+# Link to gemini convo: https://gemini.google.com/share/589bd25e5adc
+
+# Par Ratio: 
+# Expect 7 out of the 14 predictors to be relevant
+hs_prior = prior(horseshoe(df = 1, par_ratio = 1/2), class = "b")  # shrinkage on all slopes
+
+fit_hs = brm(
+  is_all_nba ~ ratioWS + G + MP + FG + FGA + FT + FTA +
+    TRB + AST + STL + BLK + TOV + PF + PTS,
+  data = player_df_scaled,
+  family = bernoulli(link = "logit"),
+  prior = hs_prior,
+  chains = 4, cores = 4, iter = 2000,
+  control = list(adapt_delta = 0.95)
+)
+
+summary(fit_hs)
+```
+
+```{r}
+pred_24 = fitted(fit_hs, newdata = player_df_scaled_24)
+pred_24 = cbind(
+  player_df_scaled_24 |> select(Rk, Player, ratioWS, all_nba, is_all_nba)
+  , pred_24) |>
+  mutate(pred_is_all_nba =  as.numeric(rank(-Estimate, ties.method = "first") <= 15))
+
+confusionMatrix(
+  factor(pred_24$pred_is_all_nba),
+  factor(pred_24$is_all_nba),
+  positive = "1"
+)
+```
+
+```{r}
+#| label: tbl-validation-2
+
+validation_24 = pred_24 |>
+  filter((is_all_nba ==1) | (pred_is_all_nba==1)) |>
+  select(Player, all_nba, pred_is_all_nba, Estimate, Est.Error) |>
+  arrange(-Estimate) |>
+  mutate(all_nba = replace_na(all_nba, "Not Selected")) |>
+  rename(
+    `All-NBA` = all_nba,
+    `Predicted Label` = pred_is_all_nba,
+    `Estimate Uncertainty` = Est.Error
+  )
+
+kable(validation_24, align = "llccc")
+```
+
+#### Secondary Aims
+
+Comparing two models with BPM and VORP respectively instead of win share, we see that both have a strong positive coefficients. VORP is around the same magnitude as win share, while BPM is moderately lower.
+
+```{r}
+#| label: BPM 
+
+fit_BPM = brm(
+  is_all_nba ~ ratioBPM + G + MP + FG + FGA + FT + FTA +
+    TRB + AST + STL + BLK + TOV + PF + PTS,
+  data = player_df_scaled,
+  family = bernoulli(link = "logit"),
+  prior = hs_prior,
+  chains = 4, cores = 4, iter = 2000,
+  control = list(adapt_delta = 0.95)
+)
+
+summary(fit_BPM)
+```
+
+
+```{r}
+#| label: VORP
+
+fit_VORP = brm(
+  is_all_nba ~ ratioVORP + G + MP + FG + FGA + FT + FTA +
+    TRB + AST + STL + BLK + TOV + PF + PTS,
+  data = player_df_scaled,
+  family = bernoulli(link = "logit"),
+  prior = hs_prior,
+  chains = 4, cores = 4, iter = 2000,
+  control = list(adapt_delta = 0.95)
+)
+
+summary(fit_VORP)
+```

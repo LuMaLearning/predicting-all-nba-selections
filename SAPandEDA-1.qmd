@@ -1,0 +1,314 @@
+---
+title: "Statistical Analysis Plan and Exploratory Data Analysis"
+subtitle: "STA 540: Case Study 2"
+author: "Luxman Maheswaran"
+format: pdf
+editor: visual
+execute:
+  echo: FALSE
+  message: FALSE
+  warning: FALSE
+---
+
+## Statistical Analysis Plan
+
+------------------------------------------------------------------------
+
+Project Title: All-NBA Selection Prediction
+
+Data citation: Sports Reference LLC "2024-25 NBA Player Stats: Totals" Basketball-Reference.com - Basketball Statistics and History. <https://www.basketball-reference.com/>
+
+Original data collection date:
+
+Data pull date: 02/03/2026
+
+Acronyms:
+
+-   NBA - National Basketball Association
+-   GLMM - generalized mixed effect model
+-   AUC - Area under the curve
+-   PR - precision-recall
+-   ROC - receiver operating characteristic
+-   WS - win share
+
+------------------------------------------------------------------------
+
+### 1 Study Overview
+
+Background/Introduction:
+
+The All-NBA Team is one of the National Basketball Association’s most prestigious individual honors. It is awarded to the players that have performed at the highest level during the regular season. The selections have been determined through voting by a panel of 100 sportswriters and broadcasters, with players ranked based on ballot points and assigned to first (best), second, and third teams. These awards not only count towards a player's legacy, but also their salary (contract incentives), reputation, and Hall of Fame consideration.
+
+Advances in computing have led to new basketball metrics and analysis. Advanced metrics like win share attempt to quantify player contribution in one number to objectively measure player performance. Modelling all-NBA selections using objective metrics not only proves or disproves the value of some of these metrics, but also showcases the impact subjective measures like voter bias or popularity have on NBA awards.
+
+1.1 Study Aims
+
+The study will examine player box scores throughout a season and calculate advanced statistics, namely win share, to identify if All-NBA status can be predicted from metrics using a generalized linear mixed effect model (GLMM). The primary aim of the study will be to determine the predictive value of win shares on all-NBA selection. Secondary aims will look at other advanced metrics like box-plus-minus and compare those with win share.
+
+1.2 Study Hypotheses
+
+Primary Aims:
+
+$H_0$: Win shares will have a zero or negative coefficient in the GLMM model.
+
+$H_1$: Win shares will have a positive coefficient in the GLMM model.
+
+Secondary Aims:
+
+$H_0$: Win shares will have the same coefficient as box-plus-minus in the GLMM model after standardization.
+
+$H_1$: Win shares will have a different coefficient as box-plus-minus in the GLMM model after standardization.
+
+### 2 Study Population
+
+Study Design
+
+This is an observational study that will use data collected over a season after the last game of the regular season.
+
+Inclusion criteria:
+
+All NBA players with at least 65 games played and average over 20 minutes in those games in the regular season are included in the data. These cutoffs are based on all-NBA selection requirements. All of the player's box stats throughout the season are included in the data set. Currently, the data set will examine the 2024-2025 season.
+
+### 3 Outcomes, Exposures, and Additional Variables of Interest
+
+3.1 Primary Outcome(s)
+
+| Variable Name | Description | Coding specification |
+|----------------------|-------------------|-------------------------------|
+| all_nba | A binary variable describing if the player was selected to the All-NBA Team | 1 if selected, 0 otherwise |
+
+3.2 Primary Independent Variable(s)
+
+| Variable Name | Description | Coding specification |
+|---------------|-------------|----------------------|
+| WS            | Win Shares  | Numeric (continuous) |
+
+3.3 Additional Variables of Interest (including potential confounders)
+
+| Variable Name | Description | Coding specification |
+|----------------------|-------------------|-------------------------------|
+| Age | Player age during the season | Numeric (continuous, years) |
+| Team | Team the player represented | Categorical (character; NBA team abbreviation) |
+| Pos | Player listed position | Categorical (levels: G, F, C, or positional combinations such as G-F, F-C) |
+| G | Games played | Numeric (integer count) |
+| GS | Games started | Numeric (integer count) |
+| MP | Minutes played | Numeric (continuous, minutes) |
+| FG | Field goals made | Numeric (integer count) |
+| FGA | Field goals attempted | Numeric (integer count) |
+| FG% | Field goal percentage | Numeric (continuous proportion, 0–1) |
+| 3P | Three-point field goals made | Numeric (integer count) |
+| 3PA | Three-point attempts | Numeric (integer count) |
+| 3P% | Three-point percentage | Numeric (continuous proportion, 0–1) |
+| 2P | Two-point field goals made | Numeric (integer count) |
+| 2PA | Two-point attempts | Numeric (integer count) |
+| 2P% | Two-point percentage | Numeric (continuous proportion, 0–1) |
+| eFG% | Effective field goal percentage | Numeric (continuous proportion, 0–1) |
+| FT | Free throws made | Numeric (integer count) |
+| FTA | Free throw attempts | Numeric (integer count) |
+| FT% | Free throw percentage | Numeric (continuous proportion, 0–1) |
+| ORB | Offensive rebounds | Numeric (integer count) |
+| DRB | Defensive rebounds | Numeric (integer count) |
+| TRB | Total rebounds | Numeric (integer count) |
+| AST | Assists | Numeric (integer count) |
+| STL | Steals | Numeric (integer count) |
+| BLK | Blocks | Numeric (integer count) |
+| TOV | Turnovers | Numeric (integer count) |
+| PF | Personal fouls | Numeric (integer count) |
+| PTS | Points scored | Numeric (integer count) |
+
+### 4 Statistical Analysis Plan
+
+4.1 Exploratory Data Analysis
+
+The exploratory data analysis will include summary statistics of the numeric features that will possibly be used in the model. The statistics will include the median, mean, standard deviation, and 90th percentile. Since there are 150 players in the data set and 15 players selected for the all-NBA team, the 90th corresponds to the top 15 cutoff for most features.
+
+In addition, there will also be two graphs; one exploring the relationship between win share (key metric) and all-NBA selection and one graph showing the distribution of minutes (usage) between all-NBA selected players and others. These graphs will give an idea of whether these variables could have a significant impact on the final model.
+
+Finally, there will be a heat map showing the correlation between the main statistics and win share. If there are any feature that are highly correlated with each other (positive or negative), then it might not be useful to include both features in the model due multicolinearity. It also gives a look at the associations between several of the main counting statistics and how they correlate with win share.
+
+4.2 Statistical Model
+
+$logit(p_{ij}) = X_{ij}\beta + u_{j}$
+
+where:
+
+-   $logit(p_{ij}) = log(p_{ij}/(1-p_{ij}))$ corresponding to the log odds ratio
+
+-   $X_{ij}$ is the fixed effect features (win share, minutes played, etc...)
+
+-   $\beta$ is the corresponding coefficients
+
+-   $u_{j}$ is the random effect corresponding to each team
+
+4.2 Rationale for the statistical model (why are you choosing to use this type of model? What about your data structure/characteristics are you accommodating with this model type?)
+
+Logistic regression is commonly used for binary response variables. This GLMM extends that idea by accounting for random effects of clustering as well. For instance, there may be unobserved heterogeneity between teams that are not captured in the player data itself. Some examples are market size, voter biases, or a winning record. This model accommodates the hierarchical nature of the data that is clustered by team. Instead of the typical threshold, the top 15 highest probabilities will be chosen.
+
+4.3 Model Assumptions
+
+The model assumptions are as follows (Popovic):
+
+1.  Observations are independent conditional on predictors and random effects.
+
+2.  The response variable follows a distribution from the exponential family (e.g., binomial, Poisson, Gaussian).
+
+3.  A link function (logit) defines a linear relationship between predictors and the mean response.
+
+4.  Random effects are independent of the response.
+
+5.  Random effects are typically normally distributed.
+
+4.4 Model Assessment
+
+To test the assumptions, the random effects should be approximately normally distributed. This can be checked with a Q-Q plot. The residuals should also not be correlated with the fixed effects, which can be checked with a scatter plot of the partial residuals. The Intraclass Correlation Coefficient (ICC) will provide a measure of what percentage of the variation is explained by the team rather than the individual stats.
+
+The performance of the model can be evaluated using a AUC-PR metric, which measures the area under the the precision recall curve of the model. This metric works better for unbalanced data sets like this one with 10% of the data coming in the minority class. Other metrics that could also be useful are ROC AUC, f1 score, and accuracy.
+
+### 5 Limitations
+
+The model assumes independent observations conditional on the predictors, but if one player makes the All-NBA team, it lowers the chances of another making the team. In addition, voters can be influenced by factors outside of in-game box stats, such as: news (narratives), popularity, and strength of schedule. This would cause omitted variable bias.
+
+### 6 References
+
+1.  Popovic, G. (2022). *Generalised mixed models*. Environmental Computing. <https://environmentalcomputing.net/statistics/mixed-models/mixed-model-3/>
+
+2.  Bresler A (2026). \_nbastatR: R's interface to NBA data\_. R package version 0.1.153, commit f1e25e746f8a9dffdd7cc4eb3666efb37fc6a8b9, \<https://github.com/abresler/nbastatR\>.
+
+\newpage
+
+## Exploratory Data Analysis
+
+```{r}
+#| label: setup
+
+knitr::opts_chunk$set(echo = FALSE)
+Sys.setenv("VROOM_CONNECTION_SIZE" = 131072 * 4)
+library(nbastatR)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(stringr)
+library(stringi)
+library(ggcorrplot)
+
+# Last complete season
+season = 2025
+player_df = read_csv("player_24-25.csv")
+all_nba = read_csv("all-pro_24-25.csv")
+
+# View the advanced statsa
+advanced_stats = bref_players_stats(seasons = season, tables = "advanced") |>
+  select(namePlayer, ratioWS, ratioOWS, ratioDWS, ratioWSPer48, ratioOBPM, ratioDBPM, ratioBPM, ratioVORP) |>
+  arrange(desc(ratioWS))
+
+# Clear large df out of memory
+dataBREFPlayerAdvanced = NULL
+
+all_nba = all_nba |>
+  pivot_longer(
+    cols = c(`1st Team`, `2nd Team`, `3rd Team`),
+    names_to = "all_nba",
+    values_to = "name"
+  ) |>
+  mutate(name = str_trim(name))
+
+player_df = player_df |>
+  left_join(all_nba, by = join_by(Player==name)) |>
+  mutate(Player = stri_trans_general(Player, "latin-ascii"),
+         is_all_nba = as.numeric(!is.na(all_nba))) |>
+  # All-NBA qualification criteria
+  filter(G>=65,
+         MP>=65*20-10) |>
+  left_join(advanced_stats, by = join_by(Player==namePlayer))
+
+
+# Summary stats
+summary_tbl = player_df |>
+  select(-is_all_nba, Rk) |>
+  summarise(
+    across(
+      where(is.numeric),
+      list(
+        mean   = ~mean(.x, na.rm = TRUE),
+        sd     = ~sd(.x, na.rm = TRUE),
+        median = ~median(.x, na.rm = TRUE),
+        p90    = ~quantile(.x, 0.90, na.rm = TRUE)
+      )
+    )
+  ) |>
+  pivot_longer(
+    everything(),
+    names_to = c("variable", ".value"),
+    names_sep = "_"
+  )
+kable(summary_tbl) |>
+  kable_styling(
+    font_size = 9,
+    bootstrap_options = c("condensed")
+  )
+```
+
+### Win Share Compared to All-NBA Selection Status
+
+Looking at the graph below, there is a clear distinction in win shares across the 4 different selection groups. This indicates that win shares can be used as a useful predictor. There is, however, some overlap between the all-NBA groups and some of the unselected players, meaning that win shares alone cannot predict all-NBA status.
+
+```{r}
+#| label: WS-All-NBA
+#| fig-width: 5
+#| fig-height: 3
+
+ggplot(player_df, aes(x = factor(all_nba), y = ratioWS, fill = factor(all_nba))) +
+  geom_boxplot(outlier.color = "red") +
+  scale_x_discrete(labels = c("0" = "Not Selected", "1" = "All-NBA")) +
+  labs(title = "Win Shares: All-NBA vs. Non-All-NBA Players",
+       subtitle = "WS is expected to be significantly higher for selected players",
+       x = "All-NBA Selection", y = "Total Win Shares") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+### Usage and All-NBA
+
+A common expression in the NBA is "availability is the best ability". The graph below shows that all-NBA players have higher minutes played compared to other players, indicating higher usage. The best players typically play the most minutes in a game, but there is not enough separation in the distribution to use minutes alone.
+
+```{r}
+#| label: min-all-nba
+#| fig-width: 5
+#| fig-height: 3
+
+ggplot(player_df,
+       aes(MP, fill = factor(is_all_nba))) +
+  geom_density(alpha = .4) +
+  scale_fill_manual(
+    name = "Selection Status",
+    labels = c(
+      "0" = "Not Selected",
+      "1" = "All-NBA"
+    ),
+    values = c(
+      "0" = "grey70",
+      "1" = "darkblue"
+    )
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+### Correlation Plot With Selected Predictors
+
+The correlation plot below shows that there is a moderate correlation between some of the key predictors. The largest of which is free throw attempts and points, which make sense as they go hand in hand. There also also moderate correlations between minutes played and points, turnovers and assists, free throwws and turnovers.
+
+```{r}
+#| label: corrplot
+#| fig-width: 5
+#| fig-height: 3
+
+corr_data = player_df |>
+  select(ratioWS, PTS, TRB, AST, BLK, STL, TOV, PF, FT, MP, `FG%`, `3P%`) |>
+  drop_na()
+
+# Calculate and plot correlation
+corr_matrix = cor(corr_data)
+ggcorrplot(corr_matrix, lab = FALSE, colors = c("red", "white", "blue"),
+           title = "Correlation Heatmap of Predictive Metrics")
+```
